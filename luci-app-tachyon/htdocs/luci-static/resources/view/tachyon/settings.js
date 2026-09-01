@@ -1724,21 +1724,76 @@ function createSettingsContent(section, capabilities) {
       }
     }
 
+    const isTunnelNetdev = function (dev, name) {
+      if (!name || name === "lo") return false;
+      if (
+        /^(br-|eth|wlan|phy|docker|veth|ifb|teql|bond|dummy|wwan|usb|switch)/i.test(
+          name,
+        )
+      )
+        return false;
+      if (/^(lan|wan)[0-9]*$/i.test(name)) return false;
+
+      const type =
+        (typeof dev.getType === "function" ? dev.getType() : "") || "";
+      const typeI18n =
+        (typeof dev.getTypeI18n === "function" ? dev.getTypeI18n() : "") || "";
+      const typeStr = (type + " " + typeI18n).toLowerCase();
+
+      if (
+        /wireguard|amnezia|tunnel|vpn|point.?to.?point|openvpn|ipsec|gre|vxlan|pptp|l2tp/.test(
+          typeStr,
+        )
+      )
+        return true;
+      if (/(^|[^a-z])tun([^a-z]|$)|(^|[^a-z])tap([^a-z]|$)/.test(typeStr))
+        return true;
+
+      if (typeof dev.getFlags === "function") {
+        const flags = String(dev.getFlags() || "");
+        if (/POINTOPOINT/i.test(flags)) return true;
+      }
+      if (dev.flags && /POINTOPOINT/i.test(String(dev.flags))) return true;
+
+      if (
+        /^(wg|awg|tun|tap|vpn|ipsec|gre|ovpn)/i.test(name) ||
+        /wireguard|amnezia/i.test(name)
+      )
+        return true;
+
+      // Custom tunnel names (e.g. "test"): not a known L2/physical type
+      if (
+        type &&
+        !/^(ethernet|bridge|wifi|wireless|vlan|alias|switch|macvlan|veth|bond)$/i.test(
+          type,
+        )
+      )
+        return true;
+
+      return false;
+    };
+
     if (typeof network !== "undefined" && typeof network.getDevices === "function") {
       return network.getDevices().then(
         L.bind(function (devices) {
           (devices || []).forEach((dev) => {
-            const name = typeof dev.getName === "function" ? dev.getName() : dev.name;
-            if (name && name !== "lo" && !this.keylist.includes(name)) {
-              const type =
-                typeof dev.getTypeI18n === "function"
-                  ? dev.getTypeI18n()
-                  : typeof dev.getType === "function"
-                    ? dev.getType()
-                    : "";
-              const desc = type ? ` (${type})` : "";
-              this.value(name, `${_("Interface")}: ${name}${desc}`);
-            }
+            const name =
+              typeof dev.getName === "function" ? dev.getName() : dev.name;
+            if (!isTunnelNetdev(dev, name)) return;
+
+            // netif: avoids clash with Tachyon section of the same name
+            const value = "netif:" + name;
+            if (this.keylist.includes(value) || this.keylist.includes(name))
+              return;
+
+            const type =
+              typeof dev.getTypeI18n === "function"
+                ? dev.getTypeI18n()
+                : typeof dev.getType === "function"
+                  ? dev.getType()
+                  : "";
+            const desc = type ? ` (${type})` : "";
+            this.value(value, `${_("Tunnel")}: ${name}${desc}`);
           });
           return this.cfgvalue(section_id);
         }, this),
